@@ -5,21 +5,29 @@ import re
 from src.logger import log
 
 class VisionEngine:
+    """
+    화면 분석 및 텍스트/이미지 인식을 담당하는 엔진 클래스입니다.
+    """
     def __init__(self):
         pass
 
     def find_targets(self, image_path, target_keywords):
         """
         [1P Hunter Mode]
-        이미지(템플릿) 매칭을 최우선으로 하여 보라색 원(1P)을 찾습니다.
+        화면 캡처본에서 이미지(템플릿)와 텍스트(OCR)를 분석하여 클릭 대상을 찾습니다.
+        이미지 매칭을 최우선으로 처리합니다.
         """
         targets = []
         img = cv2.imread(image_path)
-        if img is None: return []
+        if img is None:
+            log.error(f"Vision: 이미지를 읽을 수 없습니다: {image_path}")
+            return []
 
+        # 회색조 변환 (이미지 매칭 및 OCR 성능 향상)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # 1. 템플릿(이미지) 매칭 (핵심!)
+        # assets/templates 폴더 내의 모든 PNG 파일을 대상으로 검색합니다.
         import os
         template_dir = "assets/templates"
         if os.path.exists(template_dir):
@@ -29,70 +37,81 @@ class VisionEngine:
                 path = os.path.join(template_dir, filename)
                 template = cv2.imread(path, 0)
                 if template is None: continue
-                # [최종 복구] 사용자 캡처 이미지 최적화 (민감도 0.75)
+                
+                # [최적화] 사용자 캡처 이미지 대응: 멀티 스케일 매칭 (0.7 ~ 1.3배)
                 for scale in np.linspace(0.7, 1.3, 10)[::-1]:
                     try:
                         resized = cv2.resize(template, None, fx=scale, fy=scale)
-                        if resized.shape[0] > gray.shape[0] or resized.shape[1] > gray.shape[1]: continue
+                        if resized.shape[0] > gray.shape[0] or resized.shape[1] > gray.shape[1]: 
+                            continue
                         
+                        # 템플릿 매칭 수행 (민감도 0.75)
                         res = cv2.matchTemplate(gray, resized, cv2.TM_CCOEFF_NORMED)
                         loc = np.where(res >= 0.75) 
                         
                         rw, rh = resized.shape[::-1]
                         for pt in zip(*loc[::-1]):
                             cx, cy = pt[0] + rw // 2, pt[1] + rh // 2
+                            # 중복 좌표 제거 (반경 30px 이내)
                             if not any(abs(t[0]-cx) < 30 and abs(t[1]-cy) < 30 for t in targets):
                                 targets.append((cx, cy, filename, "IMAGE"))
-                    except: pass
+                    except Exception:
+                        pass
 
         # 2. 텍스트(OCR) 매칭 (보조)
+        # 이미지 매칭으로 못 잡은 텍스트 버튼들을 찾습니다.
         try:
-            # 원본 크기에서 스캔 (전처리 최소화)
+            # Tesseract OCR 설정 (낱글자 및 한 줄 인식 최적화)
             custom_config = r'--oem 3 --psm 11'
             data = pytesseract.image_to_data(gray, lang='kor+eng', config=custom_config, output_type=pytesseract.Output.DICT)
+            
             for i in range(len(data['text'])):
                 text = data['text'][i].strip()
                 if not text: continue
                 
+                # 특수문자 제거 및 소문자화 (정밀 비교용)
                 clean_text = re.sub(r'[^a-zA-Z0-9가-힣P]', '', text).lower()
                 if not clean_text: continue
                 
                 matched = False
-                # 1) 숫자+P 패턴 (예: 10P)
+                # 1) 숫자+P 패턴 매칭 (예: 1P, 5P, 10P)
                 if re.search(r'\d+p', clean_text):
                     matched = True
-                # 2) 단독 P (포인트)
+                # 2) 단독 'P' (포인트 기호)
                 elif clean_text == 'p':
                     matched = True
-                # 3) 키워드 매칭
+                # 3) 사용자 정의 키워드 매칭
                 else:
                     for key in target_keywords:
                         ck = re.sub(r'[^a-zA-Z0-9가-힣P]', '', key).lower()
                         if not ck: continue
                         
-                        # [망상 방지] 한 글자 노이즈 필터링
+                        # [망상 방지] 한 글자 노이즈 필터링 로직
                         if len(clean_text) == 1:
-                            # 한 글자는 키워드와 '정확히' 일치할 때만 허용
+                            # 한 글자는 키워드와 '정확히' 일치할 때만 허용 (예: X, P)
                             if clean_text == ck:
                                 matched = True; break
                         # 2글자 이상일 때 부분 일치 허용
                         elif len(clean_text) >= 2:
-                            # [중요] 키워드가 'p'인 경우, 부분 일치는 금지하고 숫자+p 패턴만 허용
+                            # 'P' 관련어는 부분 일치 금지 (Pampers 등 방지), 그 외엔 허용
                             if ck == 'p':
                                 if re.search(r'\d+p', clean_text):
                                     matched = True; break
-                            # 그 외 키워드(이벤트 등)는 부분 일치 허용
                             elif ck in clean_text or clean_text in ck:
                                 matched = True; break
                 
                 if matched:
+                    # 중심 좌표 계산
                     x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
                     cx, cy = x + w // 2, y + h // 2
+                    # 중복 제거
                     if not any(abs(t[0]-cx) < 30 and abs(t[1]-cy) < 30 for t in targets):
                         targets.append((cx, cy, text, "TEXT"))
-        except: pass
+        except Exception as e:
+            log.error(f"Vision: OCR 처리 중 오류 발생: {e}")
 
+        # 결과 로그 출력
         if targets:
-            log.info(f"Vision: Found {len(targets)} targets -> {[t[2] for t in targets]}")
+            log.info(f"Vision: {len(targets)}개의 타겟 발견 -> {[t[2] for t in targets]}")
         
         return targets
