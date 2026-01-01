@@ -11,145 +11,154 @@ load_dotenv()
 
 class OKBot:
     def __init__(self):
+        # ADB, 비전 엔진, DB 핸들러 초기화
         self.adb = ADBHandler(adb_path=os.getenv("ADB_PATH"))
         self.vision = VisionEngine()
         self.db = DBHandler()
         
-        # [해상도 최적화] 실제 기기 해상도 측정
+        # [해상도 최적화] 폴더블 7 등 대화면 기기의 실제 크기 측정
         self.width, self.height = self.adb.get_screen_size()
-        log.info(f"Detected Resolution: {self.width}x{self.height}")
+        log.info(f"기기 해상도 감지 완료: {self.width}x{self.height}")
         
+        # .env에서 타겟 키워드 읽어오기
         raw_keys = os.getenv("TARGET_KEYWORDS", "").split(",")
         self.keywords = [k.strip() for k in raw_keys if k.strip()]
         
-        # 메뉴형 키워드
+        # 메뉴형 키워드 (하루 한 번만 방문하도록 관리)
         self.menu_keywords = ["쉽게", "돈되는", "쇼핑", "오락", "혜택", "이벤트"]
+        
+        # 최근 클릭한 좌표 저장 (중복 클릭 방지용)
         self.clicked_history_temp = []
 
     def is_app_running(self):
+        """OK캐시백 앱이 화면 전면에 실행 중인지 확인"""
         pkg = self.adb.get_current_package()
         return pkg and "com.skmc.okcashbag.home_google" in pkg
 
     def launch_app(self):
-        log.info("Action: Attempting to recover app screen...")
+        """앱 복구 및 초기 광고 돌파 로직"""
+        log.info("액션: 앱 복구 및 메인 화면 진입 시도...")
+        
+        # 클릭 연타 후 안정화를 위해 3~5초 랜덤 대기
         wait_time = random.uniform(3.0, 5.0)
-        log.info(f"Action: Waiting {wait_time:.1f}s before recovery...")
+        log.info(f"안정화 대기 중... ({wait_time:.1f}초)")
         time.sleep(wait_time)
         
-        log.info("Action: Pressing BACK 5 times to escape popups/menus...")
+        # 뒤로가기 5번으로 팝업이나 메뉴 탈출 시도
+        log.info("뒤로가기 5번 연타로 화면 정리...")
         for _ in range(5):
             self.adb.back()
             time.sleep(0.5)
             
+        # 그래도 앱이 안 뜨면 강제 재시작
         if not self.is_app_running():
-            log.info("Action: App still stuck. Force Restarting...")
+            log.info("앱이 응답하지 않음. 강제 재시작 중...")
             self.adb.stop_app()
             time.sleep(1)
             self.adb.launch_app()
-            time.sleep(6)
+            time.sleep(6) # 로딩 대기
         
-        # [초반 광고 돌파] 직선 스와이프 강화 (대각선 튐 방지)
-        log.info("Action: Initial linear swipe sequence...")
-        safe_x = int(self.width * 0.1)  # 좌측 10% (안전 여백)
-        mid_x = self.width // 2
-        mid_y = self.height // 2
+        # [초반 광고 돌파] 사용자 피드백 반영: 광고 밑(60% 지점)을 잡고 직선 스와이프
+        log.info("초반 광고 돌파 제스처 실행...")
+        safe_x = int(self.width * 0.1)   # 좌측 여백
+        start_y = int(self.height * 0.6) # 광고 살짝 밑
+        end_y = int(self.height * 0.15)  # 위로 밀기
         
-        # 1단계: 수직 하강 (X값 완벽 고정)
-        # 60% 지점에서 15% 지점으로 (아래로 내리기)
-        start_y = int(self.height * 0.6)
-        end_y = int(self.height * 0.15)
-        log.info(f"Action: Straight DOWN Swipe at X={safe_x}")
+        # 1단계: 수직 하강 (아래로 내리기)
         self.adb.swipe(safe_x, start_y, safe_x, end_y, duration=700)
         time.sleep(0.8)
         
-        # 2단계: 수평 이동 (Y값 완벽 고정)
-        # 우측 85%에서 좌측 15%로 (오른쪽 보기)
-        side_start_x = int(self.width * 0.85)
-        side_end_x = int(self.width * 0.15)
-        log.info(f"Action: Straight LEFT Swipe at Y={mid_y}")
-        self.adb.swipe(side_start_x, mid_y, side_end_x, mid_y, duration=700)
+        # 2단계: 수평 이동 (오른쪽 보기)
+        log.info("오른쪽 콘텐츠 노출 시도 (좌측 스와이프)...")
+        self.adb.swipe(int(self.width * 0.85), start_y, int(self.width * 0.15), start_y, duration=700)
         time.sleep(0.8)
         
-        # 3단계: 마무리 바닥 밀기 (X값 완벽 고정)
+        # 3단계: 마무리 바닥 밀기
         self.adb.swipe(safe_x, int(self.height * 0.9), safe_x, int(self.height * 0.1), duration=700)
         time.sleep(1.0)
 
     def scan_and_click_burst(self):
-        """현재 화면을 즉시 스캔하고 보이는 모든 타겟을 클릭 (초고속)"""
+        """현재 화면에서 보이는 모든 포인트를 즉시 연타"""
         screen_path = self.adb.screencap()
         if not screen_path: return False
         
         targets = self.vision.find_targets(screen_path, self.keywords)
         valid_targets = []
+        
         for t in targets:
             cx, cy, label, ttype = t
+            # 메뉴 중복 방문 체크
             is_menu = any(m in label for m in self.menu_keywords)
             if is_menu and self.db.is_already_harvested_today(label): continue
-            # [최적화] 중복 범위 50px로 축소 (폴드 대화면 정밀 클릭)
+            
+            # 좌표 중복 클릭 방지 (반경 50px)
             if any(abs(h[0]-cx) < 50 and abs(h[1]-cy) < 50 for h in self.clicked_history_temp): continue
             valid_targets.append(t)
 
         if valid_targets:
-            log.info(f"Action: Burst clicking {len(valid_targets)} targets found during patrol...")
+            log.info(f"사냥감 발견! {len(valid_targets)}개 타겟 연타 시작...")
             for target in valid_targets:
                 cx, cy, label, ttype = target
-                self.adb.tap(cx, cy)
+                log.info(f"클릭 -> '{label}' ({ttype}) 지점: ({cx}, {cy})")
+                self.adb.tap(cx, cy) # 150ms 꾹 누르기
+                
                 if any(m in label for m in self.menu_keywords):
                     self.db.record_harvest(label)
+                
                 self.clicked_history_temp.append((cx, cy))
                 if len(self.clicked_history_temp) > 500: self.clicked_history_temp.pop(0)
+                
+                # [안전] 사람처럼 보이게 랜덤 간격 (0.1~0.3초)
                 time.sleep(random.uniform(0.1, 0.3))
             return True
         return False
 
     def fast_patrol_move(self):
-        """입체적 화면 탐색 (더 길고 강력한 스크롤)"""
-        # 액션 유형 결정
+        """입체적 화면 탐색 (우측 이동 후 하강, 정지 스캔 등)"""
         action = random.choices(
             ["STAY", "DOWN", "UP", "LEFT", "RIGHT", "COMPOUND"], 
             weights=[10, 30, 10, 10, 10, 30]
         )[0]
         
-        safe_x = int(self.width * 0.08)
+        safe_x = int(self.width * 0.08) # 좌측 여백 손잡이
         ry = random.randint(int(self.height * 0.3), int(self.height * 0.7))
         
         if action == "STAY":
+            log.info("정지 순찰: 현재 화면 정밀 스캔 중...")
             self.scan_and_click_burst()
         elif action == "COMPOUND":
-            log.info("Patrol: COMPOUND (Safe LEFT then DOWN)")
-            # [더 길게] 가로 끝에서 끝까지
-            self.adb.swipe(int(self.width * 0.95), ry, int(self.width * 0.05), ry, duration=400)
+            log.info("복합 이동: 우측 이동 후 하강...")
+            self.adb.swipe(int(self.width * 0.95), ry, int(self.width * 0.05), ry, duration=600)
             self.scan_and_click_burst()
-            # [더 길게] 세로 바닥까지
-            y1 = random.randint(int(self.height * 0.85), int(self.height * 0.95))
-            y2 = random.randint(int(self.height * 0.05), int(self.height * 0.15))
-            self.adb.swipe(safe_x, y1, safe_x, y2, duration=400)
+            y1, y2 = random.randint(int(self.height * 0.85), int(self.height * 0.95)), random.randint(int(self.height * 0.05), int(self.height * 0.15))
+            self.adb.swipe(safe_x, y1, safe_x, y2, duration=600)
             self.scan_and_click_burst()
         elif action == "DOWN":
-            # [더 길게] 화면 전체 훑기
-            y1 = random.randint(int(self.height * 0.9), int(self.height * 0.98))
-            y2 = random.randint(int(self.height * 0.02), int(self.height * 0.1))
-            log.info(f"Patrol: Long DOWN from {y1} to {y2}")
-            self.adb.swipe(safe_x, y1, safe_x, y2, duration=500)
+            log.info("이동: 아래로 길게 훑기...")
+            y1, y2 = random.randint(int(self.height * 0.9), int(self.height * 0.98)), random.randint(int(self.height * 0.02), int(self.height * 0.1))
+            self.adb.swipe(safe_x, y1, safe_x, y2, duration=700)
             self.scan_and_click_burst()
         elif action == "LEFT":
-            # 가로 끝까지
-            self.adb.swipe(int(self.width * 0.95), ry, int(self.width * 0.05), ry, duration=500)
+            log.info("이동: 왼쪽 페이지 확인...")
+            self.adb.swipe(int(self.width * 0.05), ry, int(self.width * 0.95), ry, duration=600)
             self.scan_and_click_burst()
         elif action == "RIGHT":
-            self.adb.swipe(int(self.width * 0.05), ry, int(self.width * 0.95), ry, duration=500)
+            log.info("이동: 오른쪽 페이지 확인 후 살짝 내리기...")
+            self.adb.swipe(int(self.width * 0.95), ry, int(self.width * 0.05), ry, duration=600)
+            self.scan_and_click_burst()
+            y1, y2 = random.randint(int(self.height * 0.5), int(self.height * 0.6)), random.randint(int(self.height * 0.2), int(self.height * 0.4))
+            self.adb.swipe(safe_x, y1, safe_x, y2, duration=400)
             self.scan_and_click_burst()
         elif action == "UP":
-            # 위로 끝까지
-            self.adb.swipe(safe_x, int(self.height * 0.05), safe_x, int(self.height * 0.95), duration=500)
+            log.info("이동: 위로 다시 올라가기...")
+            self.adb.swipe(safe_x, int(self.height * 0.05), safe_x, int(self.height * 0.95), duration=700)
             self.scan_and_click_burst()
         
         time.sleep(random.uniform(0.3, 0.6))
 
     def run(self):
-        log.info(">>> ULTRA BULLDOZER MODE (Active Patrol) STARTED <<<")
-        # [수정] 최소 3번, 최대 5번 랜덤 주기
-        cycle_limit = random.randint(3, 5)
+        log.info(">>> 울트라 불도저 봇 가동 시작 <<<")
+        cycle_limit = random.randint(3, 5) # 탈출 주기
         current_cycle = 0
         
         while True:
@@ -158,29 +167,31 @@ class OKBot:
                 current_cycle = 0
                 continue
 
-            # 메인 루프에서도 쉼 없이 스캔 & 클릭
+            # 1. 쉼 없이 사냥 시도
             clicked = self.scan_and_click_burst()
             
             if not clicked:
+                # 먹을 게 없으면 순찰 강화
                 current_cycle += 1
-                log.info(f"Patrolling... ({current_cycle}/{cycle_limit})")
+                log.info(f"현재 구역 공략 완료. 다음 구역으로 이동 중... ({current_cycle}/{cycle_limit})")
                 self.fast_patrol_move()
                 
+                # 2. 일정 주기마다 다른 메뉴로 탈출 (랜덤 뒤로가기)
                 if current_cycle >= cycle_limit:
                     num_backs = random.randint(5, 7)
-                    log.info(f"Action: Deep Escape! BACK {num_backs} times...")
+                    log.info(f"랜덤 탈출 발동! 뒤로가기 {num_backs}번 연타...")
                     for _ in range(num_backs):
                         self.adb.back()
                         time.sleep(random.uniform(0.2, 0.5))
                     
-                    # [리셋] 탈출했으므로 좌표 기억 초기화
+                    # 리셋 및 기억 정화
                     current_cycle = 0
-                    cycle_limit = random.randint(3, 6);
+                    cycle_limit = random.randint(3, 6)
                     self.clicked_history_temp = [] 
             else:
-                # 무언가 클릭했다면 사이클 카운트 초기화 (여기 더 먹을 거 있다는 뜻)
+                # 무언가 사냥했다면 기분 좋게 잠시 대기
                 current_cycle = 0 
-                time.sleep(0.5)
+                time.sleep(random.uniform(0.3, 0.6))
 
 if __name__ == "__main__":
     OKBot().run()
