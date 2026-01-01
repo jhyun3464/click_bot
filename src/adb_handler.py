@@ -100,11 +100,9 @@ class ADBHandler:
         """현재 화면 전면에 떠 있는 앱의 패키지명을 가져옵니다."""
         output = self._run_command("shell dumpsys window displays")
         if output:
-            match = re.search(r'mCurrentFocus.*
-    ([a-zA-Z0-9\._]+)/', output)
+            match = re.search(r'mCurrentFocus.*\s([a-zA-Z0-9\._]+)/', output)
             if match: return match.group(1)
-            match = re.search(r'mFocusedApp.*
-    ([a-zA-Z0-9\._]+)/', output)
+            match = re.search(r'mFocusedApp.*\s([a-zA-Z0-9\._]+)/', output)
             if match: return match.group(1)
         return None
 
