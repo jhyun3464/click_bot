@@ -1,0 +1,16 @@
+# Environments
+.env
+
+# Databases
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Screenshots/Temporary images
+*.png
+!assets/templates/*.png
