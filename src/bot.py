@@ -139,9 +139,19 @@ class OKBot:
             self.adb.swipe(safe_x, y1, safe_x, y2, duration=700)
             self.scan_and_click_burst()
         elif action == "LEFT":
-            log.info("이동: 왼쪽 페이지 확인...")
+            log.info("이동: 왼쪽 페이지 확인 후 살짝 내리기...")
+            # 1. 왼쪽으로 밀기 (좌측 여백 활용)
             self.adb.swipe(int(self.width * 0.05), ry, int(self.width * 0.95), ry, duration=600)
             self.scan_and_click_burst()
+            time.sleep(0.3)
+            
+            # 2. 이어서 아래로 살짝 툭 내리기 (Short Down)
+            y1 = random.randint(int(self.height * 0.5), int(self.height * 0.6))
+            y2 = y1 - random.randint(150, 350)
+            log.info(f"Patrol: Short DOWN follow-up from {y1} to {y2}")
+            self.adb.swipe(safe_x, y1, safe_x, y2, duration=400)
+            self.scan_and_click_burst()
+            
         elif action == "RIGHT":
             log.info("이동: 오른쪽 페이지 확인 후 살짝 내리기...")
             self.adb.swipe(int(self.width * 0.95), ry, int(self.width * 0.05), ry, duration=600)
