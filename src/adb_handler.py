@@ -88,7 +88,8 @@ class ADBHandler:
 
     def launch_app(self, package_name="com.skmc.okcashbag.home_google"):
         """특정 패키지명의 앱을 실행합니다."""
-        self._run_command(f"shell monkey -p {package_name} -c android.intent.category.LAUNCHER 1")
+        # [수정] 카테고리 옵션 제거 (호환성 향상)
+        self._run_command(f"shell monkey -p {package_name} 1")
         time.sleep(7)
 
     def stop_app(self, package_name="com.skmc.okcashbag.home_google"):

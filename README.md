@@ -1,5 +1,7 @@
 # Android Vision Control Bot (Research Project)
 
+**제대로 동작안해요 하지만 핸드폰 자동화 테스트용으로 해봤어요. gemini 와같이 했어요 ㅋㅋㅋ**
+
 본 프로젝트는 안드로이드 기기 환경에서 이미지 인식(Computer Vision)과 기기 제어(ADB) 기술을 결합하여 자동화 로직을 연구하기 위한 교육용 도구입니다.
 
 ## 🚀 주요 연구 기능

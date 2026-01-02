@@ -127,12 +127,28 @@ class OKBot:
             log.info("정지 순찰: 현재 화면 정밀 스캔 중...")
             self.scan_and_click_burst()
         elif action == "COMPOUND":
-            log.info("복합 이동: 우측 이동 후 하강...")
-            self.adb.swipe(int(self.width * 0.95), ry, int(self.width * 0.05), ry, duration=600)
+            # [핵심] 우측으로 크게 밀고, 그 화면에서 다시 아래로 랜덤하게 밀기 (느슨한 연결)
+            log.info("Patrol: COMPOUND (Wide RIGHT then Random Vertical)")
+            
+            # 1. 가로: 화면 끝에서 끝까지
+            start_x = int(self.width * 0.95)
+            end_x = int(self.width * 0.05)
+            self.adb.swipe(start_x, ry, end_x, ry, duration=400) 
             self.scan_and_click_burst()
-            y1, y2 = random.randint(int(self.height * 0.85), int(self.height * 0.95)), random.randint(int(self.height * 0.05), int(self.height * 0.15))
-            self.adb.swipe(safe_x, y1, safe_x, y2, duration=600)
-            self.scan_and_click_burst()
+            time.sleep(random.uniform(0.3, 0.8)) # 랜덤 대기
+            
+            # 2. 세로: 90% 확률로 움직임 (10%는 멈춰서 스캔만)
+            if random.random() < 0.9:
+                # 거리 랜덤 (Short / Medium / Long)
+                dist_factor = random.choice([0.2, 0.5, 0.8])
+                y1 = random.randint(int(self.height * 0.7), int(self.height * 0.9))
+                y2 = y1 - int(self.height * dist_factor)
+                
+                log.info(f"Patrol: Follow-up DOWN (Factor {dist_factor})")
+                self.adb.swipe(safe_x, y1, safe_x, max(100, y2), duration=400)
+                self.scan_and_click_burst()
+            else:
+                log.info("Patrol: Skip vertical move (Stay & Scan)")
         elif action == "DOWN":
             log.info("이동: 아래로 길게 훑기...")
             y1, y2 = random.randint(int(self.height * 0.9), int(self.height * 0.98)), random.randint(int(self.height * 0.02), int(self.height * 0.1))

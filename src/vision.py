@@ -11,11 +11,11 @@ class VisionEngine:
     def __init__(self):
         pass
 
-    def find_targets(self, image_path, target_keywords):
+    def find_targets(self, image_path, target_keywords, app_name=None):
         """
         [1P Hunter Mode]
         화면 캡처본에서 이미지(템플릿)와 텍스트(OCR)를 분석하여 클릭 대상을 찾습니다.
-        이미지 매칭을 최우선으로 처리합니다.
+        app_name이 있으면 해당 앱 전용 폴더의 이미지만 검색합니다.
         """
         targets = []
         img = cv2.imread(image_path)
@@ -23,13 +23,17 @@ class VisionEngine:
             log.error(f"Vision: 이미지를 읽을 수 없습니다: {image_path}")
             return []
 
-        # 회색조 변환 (이미지 매칭 및 OCR 성능 향상)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # 1. 템플릿(이미지) 매칭 (핵심!)
-        # assets/templates 폴더 내의 모든 PNG 파일을 대상으로 검색합니다.
         import os
+        # 앱별 전용 폴더 우선 탐색
         template_dir = "assets/templates"
+        if app_name:
+            app_dir = os.path.join(template_dir, app_name)
+            if os.path.exists(app_dir):
+                template_dir = app_dir
+        
         if os.path.exists(template_dir):
             for filename in os.listdir(template_dir):
                 if not filename.endswith(".png"): continue
@@ -74,28 +78,28 @@ class VisionEngine:
                 if not clean_text: continue
                 
                 matched = False
-                # 1) 숫자+P 패턴 매칭 (예: 1P, 5P, 10P)
-                if re.search(r'\d+p', clean_text):
+                # 1) 숫자+P 또는 숫자+금 패턴 (예: 10P, 30금)
+                if re.search(r'\d+p', clean_text) or re.search(r'\d+금', clean_text):
                     matched = True
-                # 2) 단독 'P' (포인트 기호)
+                # 2) 단독 P (포인트)
                 elif clean_text == 'p':
                     matched = True
-                # 3) 사용자 정의 키워드 매칭
+                # 3) 키워드 매칭
                 else:
                     for key in target_keywords:
                         ck = re.sub(r'[^a-zA-Z0-9가-힣P]', '', key).lower()
                         if not ck: continue
                         
-                        # [망상 방지] 한 글자 노이즈 필터링 로직
+                        # [망상 방지] 한 글자 노이즈 필터링
                         if len(clean_text) == 1:
-                            # 한 글자는 키워드와 '정확히' 일치할 때만 허용 (예: X, P)
+                            # 한 글자는 키워드와 '정확히' 일치할 때만 허용
                             if clean_text == ck:
                                 matched = True; break
                         # 2글자 이상일 때 부분 일치 허용
                         elif len(clean_text) >= 2:
-                            # 'P' 관련어는 부분 일치 금지 (Pampers 등 방지), 그 외엔 허용
-                            if ck == 'p':
-                                if re.search(r'\d+p', clean_text):
+                            # 'P' 또는 '금' 관련어는 부분 일치 금지 (숫자가 없으면 무시)
+                            if ck in ['p', '금']:
+                                if re.search(r'\d+p', clean_text) or re.search(r'\d+금', clean_text):
                                     matched = True; break
                             elif ck in clean_text or clean_text in ck:
                                 matched = True; break
