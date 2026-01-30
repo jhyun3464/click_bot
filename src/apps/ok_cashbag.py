@@ -17,8 +17,15 @@ class OKCashbagAgent(BaseBot):
         # "전체보기"를 메뉴 목록에 추가하여 발견 시 진입 유도
         self.menu_keywords = ["쉽게", "돈되는", "쇼핑", "오락", "혜택", "이벤트", "전체보기"]
         
-        # [추가] OK캐시백은 볼 게 많으므로 10바퀴 진득하게 돕니다.
-        self.max_cycles = 10
+        # [수정] OK캐시백은 XML 데이터가 부정확하므로 이미지/OCR만 사용
+        self.use_xml = False
+        
+        # [추가] 광고/브라우저 팝업 대응: 클릭 후 15~30초 랜덤 대기 후 자동 뒤로가기
+        self.click_wait_range = (15, 30)
+        self.auto_back_after_click = True
+
+        # [수정] OK캐시백 비중 확대: 3바퀴
+        self.max_cycles = 3
 
     def launch_app(self):
         """OK캐시백 전용 실행 로직 (광고 없음 - 정지 스캔)"""
@@ -33,39 +40,42 @@ class OKCashbagAgent(BaseBot):
         self.scan_and_click_burst()
 
     def fast_patrol_move(self):
-        """OK캐시백 전용: 입체적 화면 탐색 (중앙 집중 드래그)"""
+        """OK캐시백 전용: 공격적 입체 탐색 (제자리 스캔 제거)"""
         action = random.choices(
-            ["STAY", "DOWN", "UP", "LEFT", "RIGHT", "COMPOUND"], 
-            weights=[10, 30, 10, 10, 10, 30]
+            ["DOWN", "UP", "LEFT", "RIGHT", "COMPOUND"], 
+            weights=[40, 10, 15, 15, 20]
         )[0]
         
         mid_x, mid_y = self.width // 2, self.height // 2
         ry = random.randint(int(self.height * 0.3), int(self.height * 0.7))
         
-        log.info(f"Patrol: [OK Spec] Executing {action}...")
+        log.info(f"Patrol: [OK Active] Executing {action}...")
         
-        if action == "STAY":
-            self.scan_and_click_burst()
-        elif action == "COMPOUND":
-            # [수정] 중앙을 잡고 시원하게 1초간 밀기
+        if action == "COMPOUND":
+            # [복합] 우측으로 크게 밀고 + 아래로 내리기
             log.info("Patrol: Wide RIGHT then Long DOWN")
-            self.adb.swipe(int(self.width * 0.9), mid_y, int(self.width * 0.1), mid_y, duration=1000)
-            time.sleep(1); self.scan_and_click_burst()
+            self.adb.swipe(int(self.width * 0.9), mid_y, int(self.width * 0.1), mid_y, duration=800)
+            time.sleep(1.2)
             
-            self.adb.swipe(mid_x, int(self.height * 0.8), mid_x, int(self.height * 0.2), duration=1000)
-            time.sleep(1.5); self.scan_and_click_burst()
+            self.adb.swipe(mid_x, int(self.height * 0.8), mid_x, int(self.height * 0.25), duration=900)
+            time.sleep(1.2)
+            
         elif action == "DOWN":
-            self.adb.swipe(mid_x, int(self.height * 0.8), mid_x, int(self.height * 0.2), duration=1000)
-            time.sleep(1.5); self.scan_and_click_burst()
+            # 시원하게 내리기
+            self.adb.swipe(mid_x, int(self.height * 0.8), mid_x, int(self.height * 0.2), duration=800)
+            time.sleep(1.5)
+            
         elif action == "UP":
-            self.adb.swipe(mid_x, int(self.height * 0.2), mid_x, int(self.height * 0.8), duration=1000)
-            time.sleep(1.5); self.scan_and_click_burst()
+            self.adb.swipe(mid_x, int(self.height * 0.2), mid_x, int(self.height * 0.8), duration=800)
+            time.sleep(1.5)
+            
         elif action == "LEFT":
-            self.adb.swipe(int(self.width * 0.15), ry, int(self.width * 0.85), ry, duration=1000)
-            time.sleep(1.5); self.scan_and_click_burst()
+            self.adb.swipe(int(self.width * 0.15), ry, int(self.width * 0.85), ry, duration=800)
+            time.sleep(1.5)
+            
         elif action == "RIGHT":
-            self.adb.swipe(int(self.width * 0.85), ry, int(self.width * 0.15), ry, duration=1000)
-            time.sleep(1.5); self.scan_and_click_burst()
+            self.adb.swipe(int(self.width * 0.85), ry, int(self.width * 0.15), ry, duration=800)
+            time.sleep(1.5)
         
-        time.sleep(1.0)
-        self.scan_and_click_burst()
+        # 동작 후 추가 대기 (로딩)
+        time.sleep(0.5)

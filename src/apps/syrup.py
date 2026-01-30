@@ -18,8 +18,16 @@ class SyrupAgent(BaseBot):
         # 메뉴형 키워드
         self.menu_keywords = ["야금야금", "모으기", "출석", "혜택"]
         
-        # 시럽은 볼 게 많으므로 5바퀴 정도 돕니다.
-        self.max_cycles = 5
+        # [설정] 시럽(Syrup)도 텍스트가 많으므로 독서 모드(Stay Mode) 비활성화
+        self.stay_keywords = []
+        self.reading_mode_threshold = 2000
+        
+        # [추가] 클릭 후 15~30초 랜덤 대기 후 자동 복귀 (적립 확인용)
+        self.click_wait_range = (15, 30)
+        self.auto_back_after_click = True
+        
+        # [수정] 시럽 비중 확대: 3바퀴
+        self.max_cycles = 3
 
     def launch_app(self):
         """시럽 실행 및 초기 광고 스킵 스크롤"""
